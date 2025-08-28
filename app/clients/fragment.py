@@ -1,10 +1,10 @@
-import re
 import json
-from typing import List, Dict, Optional
+import re
+from typing import Dict, List, Optional
 
 import httpx
+from aiocache import SimpleMemoryCache, cached
 from bs4 import BeautifulSoup
-from aiocache import cached, SimpleMemoryCache
 
 SALE_URL = "https://fragment.com/numbers?filter=sale"
 NUMBER_URL = "https://fragment.com/number/{number_id}"
@@ -79,8 +79,8 @@ class FragmentNumbersClient:
         title = soup.select_one(".tm-section-title")
         buy_btn = soup.select_one(".btn.btn-primary, button.btn-primary")
         api_hash = None
-        for s in soup.find_all('script'):
-            txt = (s.string or s.text or '').strip()
+        for s in soup.find_all("script"):
+            txt = (s.string or s.text or "").strip()
             if not txt:
                 continue
             m = re.search(r"api\?hash=([a-f0-9]{16,})", txt)
@@ -94,9 +94,15 @@ class FragmentNumbersClient:
             "url": url,
             "api_hash": api_hash,
         }
-    
 
-    async def api_get_bid_link(self, number_id: str, bid_ton: int, account: dict, device: dict, api_hash: Optional[str]) -> Dict:
+    async def api_get_bid_link(
+        self,
+        number_id: str,
+        bid_ton: int,
+        account: dict,
+        device: dict,
+        api_hash: Optional[str],
+    ) -> Dict:
         if not api_hash:
             info = await self.get_number_info(number_id)
             api_hash = info.get("api_hash")
@@ -110,7 +116,9 @@ class FragmentNumbersClient:
             "account": json.dumps(account),
             "device": json.dumps(device),
         }
-        r = await self._client.post(API_URL, params=params, data=data, cookies=self._cookies)
+        r = await self._client.post(
+            API_URL, params=params, data=data, cookies=self._cookies
+        )
         r.raise_for_status()
         js = r.json()
         tx = js.get("transaction", {})
@@ -124,5 +132,3 @@ class FragmentNumbersClient:
         if not address or not amount:
             raise RuntimeError("Incomplete message in getBidLink response")
         return {"address": address, "amount_nano": amount, "payload_b64": payload}
-
-

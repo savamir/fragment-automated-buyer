@@ -1,12 +1,11 @@
-import re
 import json
-import base64
+import re
 import urllib.parse
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
 import httpx
+from aiocache import SimpleMemoryCache, cached
 from bs4 import BeautifulSoup
-from aiocache import cached, SimpleMemoryCache
 
 SALE_URL = "https://fragment.com/?sort=price_asc&filter=sale"
 USERNAME_URL = "https://fragment.com/username/{username_id}"
@@ -44,54 +43,56 @@ class FragmentUsernamesClient:
     async def list_sales(self) -> List[Dict]:
         html = await self.fetch_sale_html()
         soup = BeautifulSoup(html, "html.parser")
-        
+
         table = soup.select_one("table")
         if not table:
             return []
-            
+
         rows = table.select("tr")
         sales: List[Dict] = []
-        
+
         for row in rows:
             if row.select_one("th"):
                 continue
-                
+
             username_link = row.select_one("td a[href*='/username/']")
             if not username_link:
                 continue
-                
+
             href = username_link.get("href") or ""
             username_id = href.split("/")[-1]
-            
+
             username_text = username_link.get_text(strip=True)
             if username_text.startswith("@"):
                 username_text = username_text[1:]
-            
+
             price_cell = None
             for cell in row.select("td"):
                 cell_text = cell.get_text(strip=True)
                 if "TON" in cell_text or self._parse_price(cell_text):
                     price_cell = cell
                     break
-            
+
             if not price_cell:
                 continue
-                
+
             price_str = price_cell.get_text(strip=True)
             price_int = self._parse_price(price_str)
-            
+
             status_cell = row.select_one("td")
             status = status_cell.get_text(strip=True) if status_cell else "For sale"
-            
-            sales.append({
-                "id": username_id,
-                "url": USERNAME_URL.format(username_id=username_id),
-                "username": username_text,
-                "price_ton": price_str,
-                "price_ton_int": price_int,
-                "status": status,
-            })
-        
+
+            sales.append(
+                {
+                    "id": username_id,
+                    "url": USERNAME_URL.format(username_id=username_id),
+                    "username": username_text,
+                    "price_ton": price_str,
+                    "price_ton_int": price_int,
+                    "status": status,
+                }
+            )
+
         return sales
 
     async def get_username_info(self, username_id: str) -> Dict:
@@ -99,20 +100,20 @@ class FragmentUsernamesClient:
         r = await self._client.get(url, cookies=self._cookies)
         r.raise_for_status()
         soup = BeautifulSoup(r.text, "html.parser")
-        
+
         title = soup.select_one("h1, .tm-section-title")
         buy_btn = soup.select_one(".btn.btn-primary, button.btn-primary")
-        
+
         api_hash = None
-        for s in soup.find_all('script'):
-            txt = (s.string or s.text or '').strip()
+        for s in soup.find_all("script"):
+            txt = (s.string or s.text or "").strip()
             if not txt:
                 continue
             m = re.search(r"api\?hash=([a-f0-9]{16,})", txt)
             if m:
                 api_hash = m.group(1)
                 break
-                
+
         return {
             "id": username_id,
             "title": title.get_text(strip=True) if title else None,
@@ -146,52 +147,56 @@ class FragmentUsernamesClient:
                     "source": "data-attrs",
                 }
 
-        for a in soup.select('a[href], button[href]'):
-            href = a.get('href') or ''
+        for a in soup.select("a[href], button[href]"):
+            href = a.get("href") or ""
             if not href:
                 continue
-            if href.startswith('ton://') or 'tonkeeper' in href or 'tonhub' in href:
+            if href.startswith("ton://") or "tonkeeper" in href or "tonhub" in href:
                 parsed = urllib.parse.urlparse(href)
                 qs = urllib.parse.parse_qs(parsed.query)
                 address = None
                 amount_nano = None
-                payload_b64 = ''
-                if parsed.scheme == 'ton' and parsed.netloc == 'transfer':
-                    address = parsed.path.lstrip('/')
-                    if 'amount' in qs:
+                payload_b64 = ""
+                if parsed.scheme == "ton" and parsed.netloc == "transfer":
+                    address = parsed.path.lstrip("/")
+                    if "amount" in qs:
                         try:
-                            amount_nano = int(qs['amount'][0])
+                            amount_nano = int(qs["amount"][0])
                         except Exception:
                             amount_nano = None
-                    if 'bin' in qs:
-                        payload_b64 = qs['bin'][0]
+                    if "bin" in qs:
+                        payload_b64 = qs["bin"][0]
                     if address and amount_nano:
                         return {
-                            'address': address,
-                            'amount_nano': amount_nano,
-                            'payload_b64': payload_b64,
-                            'source': 'ton-transfer-url',
+                            "address": address,
+                            "amount_nano": amount_nano,
+                            "payload_b64": payload_b64,
+                            "source": "ton-transfer-url",
                         }
-                if 'connect' in href or 'tonkeeper' in href:
+                if "connect" in href or "tonkeeper" in href:
                     try:
                         decoded = urllib.parse.unquote(href)
                         m = re.search(r"\{\s*\"messages\"\s*:\s*\[(.*?)\]", decoded)
                         if m:
-                            inner = decoded[decoded.find('{'):]
+                            inner = decoded[decoded.find("{") :]
                             jstart = inner
-                            for end in range(len(jstart), max(len(jstart)-1, len(jstart)-1), -1):
+                            for end in range(
+                                len(jstart), max(len(jstart) - 1, len(jstart) - 1), -1
+                            ):
                                 pass
-                            data = json.loads(jstart)
-                            msg = data.get('messages', [{}])[0]
-                            address = msg.get('address')
-                            amount_nano = int(msg.get('amount')) if msg.get('amount') else None
-                            payload_b64 = msg.get('payload') or ''
+                            data: dict = json.loads(jstart)
+                            msg: dict = data.get("messages", [{}])[0]
+                            address = msg.get("address")
+                            amount_nano = (
+                                int(msg.get("amount")) if msg.get("amount") else None
+                            )
+                            payload_b64 = msg.get("payload") or ""
                             if address and amount_nano:
                                 return {
-                                    'address': address,
-                                    'amount_nano': amount_nano,
-                                    'payload_b64': payload_b64,
-                                    'source': 'tonconnect-url',
+                                    "address": address,
+                                    "amount_nano": amount_nano,
+                                    "payload_b64": payload_b64,
+                                    "source": "tonconnect-url",
                                 }
                     except Exception:
                         pass
@@ -215,9 +220,18 @@ class FragmentUsernamesClient:
                         "source": "inline-script",
                     }
 
-        raise RuntimeError("Failed to extract purchase parameters; login/session likely required")
+        raise RuntimeError(
+            "Failed to extract purchase parameters; login/session likely required"
+        )
 
-    async def api_get_bid_link(self, username_id: str, bid_ton: int, account: dict, device: dict, api_hash: Optional[str]) -> Dict:
+    async def api_get_bid_link(
+        self,
+        username_id: str,
+        bid_ton: int,
+        account: dict,
+        device: dict,
+        api_hash: Optional[str],
+    ) -> Dict:
         if not api_hash:
             info = await self.get_username_info(username_id)
             api_hash = info.get("api_hash")
@@ -231,7 +245,9 @@ class FragmentUsernamesClient:
             "account": json.dumps(account),
             "device": json.dumps(device),
         }
-        r = await self._client.post(API_URL, params=params, data=data, cookies=self._cookies)
+        r = await self._client.post(
+            API_URL, params=params, data=data, cookies=self._cookies
+        )
         r.raise_for_status()
         js = r.json()
         tx = js.get("transaction", {})

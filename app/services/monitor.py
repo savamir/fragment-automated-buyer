@@ -1,11 +1,12 @@
 import asyncio
 import contextlib
 import logging
-from typing import Callable, Dict, Any, Optional
+from typing import Any, Callable, Dict, Optional
 
 from app.clients.fragment import FragmentNumbersClient
 
 logger = logging.getLogger(__name__)
+
 
 class NumbersMonitor:
     def __init__(
@@ -25,7 +26,7 @@ class NumbersMonitor:
         if self._task and not self._task.done():
             logger.warning("Monitor is already running")
             return
-        
+
         self._running = True
         self._task = asyncio.create_task(self._run())
         logger.info(f"Monitor started with interval: {self.interval_sec}s")
@@ -43,23 +44,21 @@ class NumbersMonitor:
             try:
                 listings = await self.client.list_sales()
                 new_items_count = 0
-                
+
                 for item in listings:
                     key = f"{item.get('id')}|{item.get('price_ton_int')}|{item.get('status')}"
                     if key not in self._seen:
                         self._seen.add(key)
                         self.on_new_listing(item)
                         new_items_count += 1
-                
+
                 if new_items_count > 0:
                     logger.info(f"Found {new_items_count} new items")
-                    
+
             except asyncio.CancelledError:
                 logger.info("Monitor task cancelled")
                 break
             except Exception as e:
                 logger.error(f"Monitor loop error: {e}")
-                
+
             await asyncio.sleep(self.interval_sec)
-
-
