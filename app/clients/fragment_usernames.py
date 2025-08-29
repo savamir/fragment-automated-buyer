@@ -99,8 +99,8 @@ class FragmentUsernamesClient:
         url = USERNAME_URL.format(username_id=username_id)
         r = await self._client.get(url, cookies=self._cookies)
         r.raise_for_status()
-        soup = BeautifulSoup(r.text, "html.parser")
 
+        soup = BeautifulSoup(r.text, "html.parser")
         title = soup.select_one("h1, .tm-section-title")
         buy_btn = soup.select_one(".btn.btn-primary, button.btn-primary")
 
@@ -135,10 +135,12 @@ class FragmentUsernamesClient:
             address = buy_btn.get("data-address")
             amount_raw = buy_btn.get("data-amount") or "0"
             payload_b64 = buy_btn.get("data-payload") or ""
+
             try:
                 amount_nano = int(str(amount_raw).strip())
             except Exception:
                 amount_nano = None
+
             if address and amount_nano:
                 return {
                     "address": address,
@@ -151,12 +153,14 @@ class FragmentUsernamesClient:
             href = a.get("href") or ""
             if not href:
                 continue
+
             if href.startswith("ton://") or "tonkeeper" in href or "tonhub" in href:
                 parsed = urllib.parse.urlparse(href)
                 qs = urllib.parse.parse_qs(parsed.query)
                 address = None
                 amount_nano = None
                 payload_b64 = ""
+
                 if parsed.scheme == "ton" and parsed.netloc == "transfer":
                     address = parsed.path.lstrip("/")
                     if "amount" in qs:
@@ -164,8 +168,10 @@ class FragmentUsernamesClient:
                             amount_nano = int(qs["amount"][0])
                         except Exception:
                             amount_nano = None
+
                     if "bin" in qs:
                         payload_b64 = qs["bin"][0]
+
                     if address and amount_nano:
                         return {
                             "address": address,
@@ -173,6 +179,7 @@ class FragmentUsernamesClient:
                             "payload_b64": payload_b64,
                             "source": "ton-transfer-url",
                         }
+
                 if "connect" in href or "tonkeeper" in href:
                     try:
                         decoded = urllib.parse.unquote(href)
@@ -191,6 +198,7 @@ class FragmentUsernamesClient:
                                 int(msg.get("amount")) if msg.get("amount") else None
                             )
                             payload_b64 = msg.get("payload") or ""
+
                             if address and amount_nano:
                                 return {
                                     "address": address,
@@ -198,6 +206,7 @@ class FragmentUsernamesClient:
                                     "payload_b64": payload_b64,
                                     "source": "tonconnect-url",
                                 }
+
                     except Exception:
                         pass
 
@@ -205,6 +214,7 @@ class FragmentUsernamesClient:
             txt = script.string or script.text or ""
             if not txt:
                 continue
+
             if "data-address" in txt or "payload" in txt or "amount" in txt:
                 addr_m = re.search(r"([A-Z0-9_-]{48,66})", txt)
                 amt_m = re.search(r"\b(\d{6,})\b", txt)
@@ -212,6 +222,7 @@ class FragmentUsernamesClient:
                 address = addr_m.group(1) if addr_m else None
                 amount_nano = int(amt_m.group(1)) if amt_m else None
                 payload_b64 = payload_m.group(1) if payload_m else ""
+
                 if address and amount_nano:
                     return {
                         "address": address,
@@ -235,6 +246,7 @@ class FragmentUsernamesClient:
         if not api_hash:
             info = await self.get_username_info(username_id)
             api_hash = info.get("api_hash")
+
         params = {"hash": api_hash} if api_hash else {}
         data = {
             "method": "getBidLink",
@@ -245,19 +257,23 @@ class FragmentUsernamesClient:
             "account": json.dumps(account),
             "device": json.dumps(device),
         }
+
         r = await self._client.post(
             API_URL, params=params, data=data, cookies=self._cookies
         )
         r.raise_for_status()
-        js = r.json()
-        tx = js.get("transaction", {})
-        msgs = tx.get("messages", [])
+        js: dict = r.json()
+        tx: dict = js.get("transaction", {})
+        msgs: list = tx.get("messages", [])
         if not msgs:
             raise RuntimeError("No messages in getBidLink response")
-        msg = msgs[0]
+
+        msg: dict = msgs[0]
         address = msg.get("address")
         amount = int(msg.get("amount")) if msg.get("amount") else None
         payload = msg.get("payload") or ""
+
         if not address or not amount:
             raise RuntimeError("Incomplete message in getBidLink response")
+
         return {"address": address, "amount_nano": amount, "payload_b64": payload}

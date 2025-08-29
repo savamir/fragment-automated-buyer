@@ -140,7 +140,7 @@ class TON:
                         amount=amount_nano,
                         body=body,
                     )
-                    await self._client.send_external_message(ext)
+                    await self._client.raw_send_message(ext)
                     logger.info("External transfer successful")
                     return {
                         "ok": True,

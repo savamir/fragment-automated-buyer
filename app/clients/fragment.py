@@ -52,6 +52,7 @@ class FragmentNumbersClient:
             )
             if not link or not price_cell:
                 continue
+
             href = link.get("href") or ""
             number_id = href.split("/")[-1]
             number_text = row.select_one(".table-cell-value")
@@ -59,6 +60,7 @@ class FragmentNumbersClient:
             price_str = price_cell.get_text(strip=True)
             price_int = self._parse_price(price_str)
             status = status_cell.get_text(strip=True) if status_cell else None
+
             sales.append(
                 {
                     "id": number_id,
@@ -75,9 +77,11 @@ class FragmentNumbersClient:
         url = NUMBER_URL.format(number_id=number_id)
         r = await self._client.get(url, cookies=self._cookies)
         r.raise_for_status()
+
         soup = BeautifulSoup(r.text, "html.parser")
         title = soup.select_one(".tm-section-title")
         buy_btn = soup.select_one(".btn.btn-primary, button.btn-primary")
+
         api_hash = None
         for s in soup.find_all("script"):
             txt = (s.string or s.text or "").strip()
@@ -87,6 +91,7 @@ class FragmentNumbersClient:
             if m:
                 api_hash = m.group(1)
                 break
+
         return {
             "id": number_id,
             "title": title.get_text(strip=True) if title else None,
@@ -106,6 +111,7 @@ class FragmentNumbersClient:
         if not api_hash:
             info = await self.get_number_info(number_id)
             api_hash = info.get("api_hash")
+
         params = {"hash": api_hash} if api_hash else {}
         data = {
             "method": "getBidLink",
@@ -116,19 +122,23 @@ class FragmentNumbersClient:
             "account": json.dumps(account),
             "device": json.dumps(device),
         }
+
         r = await self._client.post(
             API_URL, params=params, data=data, cookies=self._cookies
         )
         r.raise_for_status()
-        js = r.json()
+
+        js: dict = r.json()
         tx = js.get("transaction", {})
         msgs = tx.get("messages", [])
         if not msgs:
             raise RuntimeError("No messages in getBidLink response")
-        msg = msgs[0]
+
+        msg: dict = msgs[0]
         address = msg.get("address")
         amount = int(msg.get("amount")) if msg.get("amount") else None
         payload = msg.get("payload") or ""
         if not address or not amount:
             raise RuntimeError("Incomplete message in getBidLink response")
+
         return {"address": address, "amount_nano": amount, "payload_b64": payload}
